@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<title>Bản đồ công trình thủy lợi – Vu Gia - Thu Bồn (FAB • Pro • Mobile Fix)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --ui-font: 14px; --ui-pad: 12px; --ui-gap: 8px; --ui-radius: 12px;
+    --btn-h: 36px; --ctrl-h: 36px; --fab-size: 56px;
+    --brand:#0a84ff; --brand-2:#006fe0; --bg:rgba(255,255,255,.98); --text:#0b1220;
+    --elev:0 14px 28px rgba(0,0,0,.22), 0 10px 10px rgba(0,0,0,.2);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:rgba(26,26,31,.96); --text:#e6eefc; --brand:#2997ff; --brand-2:#1f7fd6; }
+    .leaflet-container{ background:#0f1115; }
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:var(--text); background:#fff; }
+  #map{ height:100vh; width:100%; }
+
+  .leaflet-top.leaflet-left{ top: calc(env(safe-area-inset-top, 0px) + 8px)!important; left:8px!important; z-index:1500!important; }
+  .leaflet-control-zoom a{ width:34px; height:34px; line-height:34px; font-size:18px; }
+
+  .fab{
+    position:fixed; right:14px; bottom:14px; z-index:1100;
+    width:var(--fab-size); height:var(--fab-size); border-radius:50%;
+    background:var(--brand); color:#fff; border:none; cursor:pointer;
+    box-shadow:0 8px 18px rgba(0,0,0,.25); display:flex; align-items:center; justify-content:center;
+    font-size:22px; line-height:1; transition:transform .08s, background .2s, box-shadow .2s; -webkit-tap-highlight-color:transparent;
+  }
+  .fab:active{ transform:scale(.97); box-shadow:0 6px 14px rgba(0,0,0,.28); }
+  .fab:hover{ background:var(--brand-2); }
+  .fab[aria-expanded="true"]{ background:#ff3b30; }
+  .fab-icon{ transition:transform .25s ease; }
+  .fab[aria-expanded="true"] .fab-icon{ transform:rotate(45deg); }
+
+  #controls{
+    position:fixed; left:10px; right:10px; bottom:calc(14px + var(--fab-size) + 10px);
+    z-index:1099; background:var(--bg); padding:var(--ui-pad); border-radius:16px; box-shadow:var(--elev);
+    font-size:var(--ui-font); transform:translateY(16px); opacity:0; pointer-events:none; transition:opacity .22s, transform .22s;
+    max-width:560px; margin:0 auto; backdrop-filter:blur(8px);
+  }
+  #controls.is-open{ transform:translateY(0); opacity:1; pointer-events:auto; }
+  #controls h3{ margin:0 0 8px 0; color:#0066cc; font-size:1rem; line-height:1.1; }
+  @media (prefers-color-scheme: dark){ #controls h3{ color:#46a0ff; } }
+
+  .ctrl-grid{ display:grid; grid-template-columns:1fr 1fr; gap:var(--ui-gap); }
+  .ctrl-full{ grid-column:1 / -1; }
+  label{ display:block; margin:0; font-weight:600; font-size:.9em; }
+  select,button{ width:100%; margin-top:4px; height:var(--ctrl-h); padding:6px 10px; border-radius:10px; border:1px solid #dcdcdc; background:#fff; font-size:.92em; color:#111; }
+  @media (prefers-color-scheme: dark){ select,button{ background:#1b1d24; color:#eaeef6; border-color:#2b2f3a; } }
+  select{
+    appearance:none;
+    background-image:linear-gradient(45deg,transparent 50%,#888 50%), linear-gradient(135deg,#888 50%,transparent 50%);
+    background-position: calc(100% - 16px) calc(50% - 3px), calc(100% - 10px) calc(50% - 3px);
+    background-size:6px 6px, 6px 6px; background-repeat:no-repeat;
+  }
+  button{ background:#0066cc; color:#fff; border:none; font-weight:700; height:var(--btn-h); }
+  button:hover{ background:#0058b3; } button:active{ transform:translateY(1px); }
+  .row-inline{ display:flex; gap:8px; }
+
+  .basemap-bar{ display:flex; gap:6px; flex-wrap:wrap; }
+  .chip{ padding:6px 10px; border-radius:999px; border:1px solid #d6dbe5; cursor:pointer; background:#fff; font-size:.86em; user-select:none; }
+  .chip.active{ background:#0a84ff; color:#fff; border-color:#0a84ff; }
+  @media (prefers-color-scheme: dark){
+    .chip{ background:#1b1d24; border-color:#2b2f3a; color:#eaeef6; }
+    .chip.active{ background:#2997ff; border-color:#2997ff; color:#fff; }
+  }
+
+  /* Marker effects */
+  @keyframes blink{0%{opacity:1}50%{opacity:.2}100%{opacity:1}}
+  @keyframes softBlink{0%,100%{opacity:.4}50%{opacity:.9}}
+  @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}
+  .blink{ animation:blink 1.5s infinite; }
+  .soft-blink{ animation:softBlink 2.2s infinite; }
+  .highlighted-marker{ filter:drop-shadow(0 0 8px gold) brightness(1.2); z-index:1001!important; animation:pulse 1s ease 1; }
+
+  .square-blink-red{ width:14px; height:14px; background:#ff4444; border:1px solid #000; animation:blink 1.5s infinite; box-shadow:0 0 5px rgba(255,0,0,.3); }
+  .square-blink-green{ width:14px; height:14px; background:#007744; border:1px solid #000; animation:softBlink 2.2s infinite; box-shadow:0 0 5px rgba(0,100,0,.25); }
+
+  .svg-blink{ animation:blink 1.5s infinite; }
+  .svg-soft-blink{ animation:softBlink 2.2s infinite; }
+
+  /* Tuyến kênh: đỏ/ xanh — KHÔNG chuyển động cho đỏ */
+  @keyframes flow{ to{ stroke-dashoffset:-60; } }
+  .flow-line{ stroke-linecap:round; animation:none !important; } /* dừng animation cho kênh đỏ */
+  .flow-soft{ stroke-dasharray:12 8; stroke-linecap:round; animation:flow 2.4s linear infinite; opacity:.7; }
+
+  .leaflet-popup-content{ min-width:240px; font-size:13px; }
+  .popup-header{ background:#0066cc; color:#fff; padding:8px 10px; margin:-16px -16px 8px -16px; border-radius:4px 4px 0 0; font-weight:bold; }
+  .popup-row{ display:flex; margin:6px 0; } .popup-label{ width:110px; font-weight:bold; } .popup-value{ flex:1; }
+
+  .loader{ position:fixed; left:50%; top:calc(env(safe-area-inset-top,0px) + 8px); transform:translateX(-50%); background:var(--bg); color:var(--text); padding:6px 10px; border-radius:10px; box-shadow:0 8px 18px rgba(0,0,0,.25); z-index:1200; font-size:12px; }
+  .loader.hide{ display:none; }
+
+  .mini-wrap{ position:fixed; left:10px; bottom: calc(14px + var(--fab-size) + 10px); width:140px; height:90px; z-index:700; border-radius:10px; overflow:hidden; box-shadow:0 6px 16px rgba(0,0,0,.22); opacity:.95; }
+  @media (max-width:420px){ .mini-wrap{ display:none; } }
+</style>
+</head>
+<body>
+
+<div id="loader" class="loader">Đang tải dữ liệu…</div>
+
+<button id="fabToggle" class="fab" aria-label="Mở điều khiển" aria-expanded="false" title="Mở điều khiển">
+  <span class="fab-icon">＋</span>
+</button>
+
+<div id="controls" aria-hidden="true">
+  <h3>🚜 Điều khiển</h3>
+  <div class="ctrl-grid">
+    <div class="ctrl-full">
+      <label>🔍 Chọn công trình
+        <select id="projectSelect" aria-label="Chọn công trình">
+          <option value="">-- Chọn công trình --</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <label>📊 Trạng thái
+        <select id="statusFilter" aria-label="Lọc theo trạng thái">
+          <option value="all">Tất cả</option>
+          <option value="vận hành">Đang vận hành</option>
+          <option value="không">Không vận hành</option>
+        </select>
+      </label>
+    </div>
+    <div><label>&nbsp;<button id="resetView">🗺️ Xem toàn bộ</button></label></div>
+
+    <div class="ctrl-full">
+      <label>🗺️ Nền bản đồ</label>
+      <div class="basemap-bar" role="tablist" aria-label="Chọn nền bản đồ">
+        <div class="chip" data-base="osm" role="tab" aria-selected="true">OSM</div>
+        <div class="chip" data-base="dark" role="tab" aria-selected="false">Dark</div>
+        <div class="chip" data-base="sat" role="tab" aria-selected="false">Vệ tinh</div>
+      </div>
+    </div>
+
+    <div class="ctrl-full row-inline">
+      <button id="btnLocate" title="Định vị">📍 Định vị</button>
+      <button id="btnTheme" title="Đổi sáng/tối">🌓 Giao diện</button>
+      <button id="btnShare" title="Chia sẻ vị trí">🔗 Chia sẻ</button>
+    </div>
+  </div>
+</div>
+
+<div id="map"></div>
+<div class="mini-wrap"><div id="miniMap" style="width:100%;height:100%"></div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-polylinedecorator@1.7.0/dist/leaflet.polylineDecorator.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<script>
+/* ===== Utils ===== */
+function vnNormalize(str){
+  return (str||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/đ/g,'d').replace(/Đ/g,'D').replace(/[^a-zA-Z0-9]+/g,'').toLowerCase();
+}
+function normForCanal(s){ return vnNormalize((s||'').replace(/^(kênh|kenh)\s*/i,'')); }
+function makeTriangleIcon(fillColor='#ff4444', blinkClass='svg-blink'){
+  const svg = `<svg width="18" height="18" viewBox="0 0 20 20">
+      <polygon class="${blinkClass}" points="10,2 18,18 2,18" fill="${fillColor}" stroke="#000" stroke-width="1"/></svg>`;
+  return L.divIcon({ className:'', html:svg, iconSize:[18,18], iconAnchor:[9,14] });
+}
+function haptic(ms=10){ if (navigator.vibrate) navigator.vibrate(ms); }
+
+/* ===== Map & basemaps ===== */
+const baseLayers = {
+  osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution:'© OpenStreetMap' }),
+  dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, attribution:'© OSM, © Carto' }),
+  sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution:'Tiles © Esri' })
+};
+const map = L.map('map', { zoomControl:true, preferCanvas:true, layers:[baseLayers.osm] })
+  .setView([15.9,108.2], 10);
+L.control.scale({ metric:true, imperial:false }).addTo(map);
+
+/* Minimap */
+const miniBaseLayers = {
+  osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
+  dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }),
+  sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
+};
+const mini = L.map('miniMap', { attributionControl:false, zoomControl:false, dragging:false, scrollWheelZoom:false, touchZoom:false, doubleClickZoom:false })
+  .setView([15.9,108.2], 7);
+let currentMiniBase = miniBaseLayers.osm.addTo(mini);
+map.on('move', ()=> mini.setView(map.getCenter(), Math.max(3, map.getZoom()-3)));
+
+/* Basemap chips */
+const chips=document.querySelectorAll('.chip');
+function setBasemap(key){
+  Object.values(baseLayers).forEach(l=> map.removeLayer(l));
+  (baseLayers[key]||baseLayers.osm).addTo(map);
+
+  mini.removeLayer(currentMiniBase);
+  currentMiniBase = miniBaseLayers[key] || miniBaseLayers.osm;
+  currentMiniBase.addTo(mini);
+
+  chips.forEach(c=> c.classList.toggle('active', c.dataset.base===key));
+  localStorage.setItem('basemap', key);
+}
+chips.forEach(c=> c.addEventListener('click', ()=> setBasemap(c.dataset.base)));
+setBasemap(localStorage.getItem('basemap') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'osm'));
+
+/* ===== Google Sheet ===== */
+const sheetID='15L63XH1LvECJ5Rm_giOhEZDKQUEoAyd5s-OkPTRayus', gid='2147285133';
+const jsonURL=`https://docs.google.com/spreadsheets/d/${sheetID}/gviz/tq?tqx=out:json&gid=${gid}`;
+const csvURL ='https://docs.google.com/spreadsheets/d/e/2PACX-1vTUXNRgqYEUECSxY8-vkzMmu5kz1gIV4Pw7V5HC2k9u9W-uiexgyCZBALb2lUjCPYK5UxHQxz9E3DIw/pub?gid=2147285133&single=true&output=csv';
+const jsonpURL = `https://docs.google.com/spreadsheets/d/${sheetID}/gviz/tq?gid=${gid}&tqx=out:json;responseHandler=GVizCB`;
+
+const markers=[]; const markerByKey=new Map();
+
+/* ===== Canals (đã BỎ "Cẩm Thanh") ===== */
+const canals={
+  "Ái Nghĩa":{url:"https://gist.githubusercontent.com/NguyenthaoPr/9a2384e496c5757f8af67c563758f979/raw/c638dde418c6b0403eb794fda01aa1564c42b811/%25C3%2581i%2520Ngh%25C4%25A9a.geojson",layer:null},
+  "Khe Tân":{url:"https://gist.githubusercontent.com/NguyenthaoPr/e55ca3e5dc503e6e53a038da0bd26bff/raw/def1e0f72cedef0248f43846719b699892836eaa/Khetan.geojson",layer:null},
+  "Đại Chánh":{url:"https://gist.githubusercontent.com/NguyenthaoPr/6e163af286bdf561234fdc5e2b83fe7a/raw/b75738c0b94b72937c9c45676fd1649fb6ba2237/kenh1111.geojson",layer:null},
+  "Gò Da":{url:"https://gist.githubusercontent.com/NguyenthaoPr/fa71cc926c193dbacc59321839dcb539/raw/0baf1161667ca8f860f7818c1aba62424704f018/GoDa.geojson",layer:null},
+  "Đông Quang":{url:"https://gist.githubusercontent.com/NguyenthaoPr/e772915329bd9abbe9adc0a81b85127d/raw/3a73999d18dd601a226aa4f258a7296a8fa05787/%25C4%2590%25C3%25B4ng%2520Quang.geojson",layer:null},
+  "Đông Hồ":{url:"https://gist.githubusercontent.com/NguyenthaoPr/b166438d01bc9b6e03b171c83952cd16/raw/6d1c5c4045bbe8130f91dccfa00955b5dbedf8fa/%25C4%2590%25C3%25B4ng%2520H%25E1%25BB%2593.geojson",layer:null},
+  "Cẩm Văn":{url:"https://gist.githubusercontent.com/NguyenthaoPr/294e1a046a5a2ef7edee518c9cbacaf0/raw/5a8cbba460aef1fc4b2599ebacd5198964b3bbb2/C%25E1%25BA%25A9m%2520V%25C4%2583n.geojson",layer:null},
+  "Thái Sơn":{url:"https://gist.githubusercontent.com/NguyenthaoPr/628bb06c536c5049c069ef193c1eca05/raw/c32c01164c19b0b1f48df4a95db788fc4ba91ef3/Th%25C3%25A1i%2520S%25C6%25A1n.geojson",layer:null},
+  "Thanh Quýt":{url:"https://gist.githubusercontent.com/NguyenthaoPr/9764dc440c5bc49ae5a9fd8b56c8976a/raw/4653881b6ff0a29d6388ad6bf91d643e6fedf6a9/Thanh%2520Qu%25C3%25BDt.geojson",layer:null},
+  "La Thọ":{url:"https://gist.githubusercontent.com/NguyenthaoPr/dce6b8ba86e191c5eefebb5105eed206/raw/6546844d0499f3734c1d6661efdf0f57342fa91c/La%2520Th%25E1%25BB%258D.geojson",layer:null}
+};
+function findCanalKeyForName(workName){
+  const workKey=normForCanal(workName);
+  for(const canalKey in canals){ if(normForCanal(canalKey)===workKey) return canalKey; }
+  return null;
+}
+
+/* ===== CỜ: kênh đỏ KHÔNG chuyển động ===== */
+const FLOW_ANIMATE = false;
+
+/* ===== Flow arrows (PolylineDecorator) ===== */
+function startFlowArrows(canalKey, color='red', repeat=28, px=10, interval=140){
+  stopFlowArrows(canalKey);
+  const arr = [];
+  canals[canalKey].decorators = arr;
+  let offset = 0;
+
+  canals[canalKey].layer && canals[canalKey].layer.eachLayer(child=>{
+    if (child instanceof L.Polyline){
+      const dec = L.polylineDecorator(child, {
+        patterns: [{
+          offset, repeat,
+          symbol: L.Symbol.arrowHead({
+            pixelSize: px,
+            headAngle: 55,
+            pathOptions: { color, weight: 2, fillOpacity: 1, opacity: 1 }
+          })
+        }]
+      }).addTo(map);
+      arr.push(dec);
+    }
+  });
+
+  // KHÔNG chạy animation khi FLOW_ANIMATE = false
+  if (FLOW_ANIMATE){
+    canals[canalKey].flowTimer = setInterval(()=>{
+      offset = (offset + 1) % repeat;
+      arr.forEach(dec=>{
+        dec.setPatterns([{
+          offset, repeat,
+          symbol: L.Symbol.arrowHead({
+            pixelSize: px,
+            headAngle: 55,
+            pathOptions: { color, weight: 2, fillOpacity: 1, opacity: 1 }
+          })
+        }]);
+      });
+    }, interval);
+  }
+}
+function stopFlowArrows(canalKey){
+  if (canals[canalKey]?.flowTimer){ clearInterval(canals[canalKey].flowTimer); canals[canalKey].flowTimer = null; }
+  if (canals[canalKey]?.decorators){
+    canals[canalKey].decorators.forEach(d=> map.removeLayer(d));
+    canals[canalKey].decorators = [];
+  }
+}
+
+/* ===== Tạo/điều chỉnh kênh ===== */
+function ensureCanalLayer(canalKey, isOperating){
+  const kColor = isOperating ? 'red' : '#007744';
+  const effectClass = isOperating ? 'flow-line' : 'flow-soft';
+
+  if (canals[canalKey].layer){
+    canals[canalKey].layer.setStyle && canals[canalKey].layer.setStyle({ color:kColor, weight:4, opacity:1 });
+    canals[canalKey].layer.eachLayer(layer=>{
+      if(layer._path){
+        layer._path.classList.remove('flow-line','flow-soft');
+        layer._path.classList.add(effectClass);
+      }
+    });
+    if (isOperating) startFlowArrows(canalKey, 'red', 28, 10, 140);
+    else            stopFlowArrows(canalKey);
+    return;
+  }
+
+  fetch(canals[canalKey].url)
+    .then(res=>res.json())
+    .then(data=>{
+      canals[canalKey].layer = L.geoJSON(data, {
+        style:{ color:kColor, weight:4, opacity:1, renderer:L.canvas() },
+        onEachFeature:(feature,layer)=>{
+          layer.on('add', function(){
+            if(this._path){
+              this._path.classList.remove('flow-line','flow-soft');
+              this._path.classList.add(effectClass);
+            }
+          });
+        }
+      }).addTo(map);
+
+      if (isOperating) startFlowArrows(canalKey, 'red', 28, 10, 140);
+      else            stopFlowArrows(canalKey);
+    })
+    .catch(err=>console.warn('[KÊNH] Lỗi nạp:', canalKey, err));
+}
+
+/* ===== Chart mini ===== */
+function drawChart(container,data){
+  const canvas=document.createElement('canvas'); canvas.width=200; canvas.height=110;
+  container.innerHTML=''; container.appendChild(canvas);
+  new Chart(canvas.getContext('2d'),{
+    type:'line',
+    data:{ labels:['3 ngày trước','2 ngày trước','Hôm qua','Hôm nay'],
+      datasets:[{ data, fill:true, backgroundColor:'rgba(0,102,204,.1)', borderColor:'#0066cc', borderWidth:2, pointBackgroundColor:'#0066cc', pointRadius:3, tension:.3 }] },
+    options:{ responsive:false, plugins:{ legend:{display:false}, tooltip:{enabled:false} }, scales:{ y:{display:false}, x:{display:false} } }
+  });
+}
+
+/* ===== Markers ===== */
+const markersArr=[];
+function addMarker(row){
+  const name=row.c[0]?.v||'Công trình';
+  const latlng=row.c[13]?.v; if(!latlng) return;
+  const dientich=row.c[1]?.v||''; const muc19h=row.c[2]?.v||''; const muc7h=row.c[3]?.v||'';
+  const domo7h=row.c[5]?.v||''; const somay=row.c[6]?.v||'';
+  const trangthai = domo7h && domo7h!=='0' ? 'Đang vận hành' : 'Không vận hành';
+
+  const [lat,lng]=latlng.split(',').map(parseFloat);
+  const key=vnNormalize(name);
+
+  let markerLayer;
+  if (key===vnNormalize('Đ.Bàu Nít') || key===vnNormalize('Đ.Thanh Quýt')){
+    const cls=trangthai==='Đang vận hành'?'square-blink-red':'square-blink-green';
+    markerLayer=L.marker([lat,lng],{icon:L.divIcon({className:cls, iconSize:[14,14]})}).addTo(map);
+  } else if (key===vnNormalize('Khe Tân') || key===vnNormalize('Thạch Bàn') || key===vnNormalize('Vĩnh Trinh (CT)')){
+    const fill=trangthai==='Đang vận hành'?'#ff4444':'#007744';
+    const blink=trangthai==='Đang vận hành'?'svg-blink':'svg-soft-blink';
+    markerLayer=L.marker([lat,lng],{icon:makeTriangleIcon(fill,blink)}).addTo(map);
+  } else {
+    markerLayer=L.circleMarker([lat,lng],{
+      radius:7.5, fillColor:trangthai==='Đang vận hành'?'#ff4444':'#007744',
+      color:'#000', weight:1, fillOpacity:.85, className:trangthai==='Đang vận hành'?'blink':'soft-blink'
+    }).addTo(map);
+  }
+
+  const safeId='chart-'+key;
+  const div=document.createElement('div');
+  div.innerHTML=`
+    <div class="popup-header">${name}</div>
+    <div class="popup-row"><div class="popup-label">Trạng thái:</div><div class="popup-value"><b>${trangthai}</b></div></div>
+    <div class="popup-row"><div class="popup-label">🌊 Mực nước 7h:</div><div class="popup-value"><b>${muc7h||'–'}</b></div></div>
+    <div class="popup-row"><div class="popup-label">🌙 Mực nước 19h:</div><div class="popup-value"><b>${muc19h||'–'}</b></div></div>
+    <div class="popup-row"><div class="popup-label">📐 Diện tích:</div><div class="popup-value"><b>${dientich?`${dientich} ha`:'–'}</b></div></div>
+    <div class="popup-row"><div class="popup-label">🔧 Vận hành 7h:</div><div class="popup-value"><b>${domo7h||'–'} mở, ${somay||'–'} máy</b></div></div>
+    <div id="${safeId}"></div>`;
+  markerLayer.bindPopup(div);
+  markerLayer.on('popupopen',()=> drawChart(div.querySelector('#'+safeId), [23+Math.random(),23+Math.random(),23+Math.random(), parseFloat(muc7h)||23.6]));
+
+  markers.push({ name, key:vnNormalize(name), trangthai, marker:markerLayer });
+  markerByKey.set(vnNormalize(name), markerLayer);
+  markersArr.push(markerLayer);
+
+  const opt=document.createElement('option'); opt.value=name; opt.textContent=name;
+  document.getElementById('projectSelect').appendChild(opt);
+
+  const cKey=findCanalKeyForName(name);
+  if (cKey) ensureCanalLayer(cKey, trangthai==='Đang vận hành');
+}
+
+/* ===== Fly-to & Filter ===== */
+function goToProject(nameOrKeyword, zoom=15){
+  const key=vnNormalize(nameOrKeyword||''); if(!key) return false;
+  let mk=markerByKey.get(key);
+  if(!mk){
+    const hit=markers.find(m=> m.key.includes(key) || m.key===vnNormalize((m.name||'').split('(')[0]));
+    if(hit) mk=hit.marker;
+  }
+  if(!mk) return false;
+  if(!map.hasLayer(mk)) map.addLayer(mk);
+  const latlng = mk.getLatLng ? mk.getLatLng() : mk._latlng;
+  map.flyTo(latlng, zoom, { duration:0.75 });
+  mk.openPopup?.();
+  setTimeout(()=>{
+    (mk.getElement?.() || mk._icon || mk._path)?.classList?.add('highlighted-marker');
+    setTimeout(()=> (mk.getElement?.() || mk._icon || mk._path)?.classList?.remove('highlighted-marker'), 1200);
+  }, 250);
+  localStorage.setItem('lastProject', nameOrKeyword);
+  haptic(8);
+  return true;
+}
+function updateMarkers(filter){
+  markers.forEach(({ trangthai, marker })=>{
+    (filter==='all' || trangthai.toLowerCase().includes(filter.toLowerCase())) ? map.addLayer(marker) : map.removeLayer(marker);
+  });
+}
+function resetViewSmart(){
+  if (markersArr.length){
+    const b=L.latLngBounds([]); markersArr.forEach(m=>{ const ll=m.getLatLng?m.getLatLng():m._latlng; if(ll) b.extend(ll); });
+    b.isValid()? map.fitBounds(b,{padding:[24,24]}): map.flyTo([15.9,108.2],10,{duration:.75});
+  }else map.flyTo([15.9,108.2],10,{duration:.75});
+}
+
+/* ===== JSONP loader (bypass CORS) + CSV fallback ===== */
+const loader=document.getElementById('loader');
+function rowsFromGVizObject(obj){ if (!obj || !obj.table || !obj.table.rows) throw new Error('GViz invalid'); return obj.table.rows; }
+function rowsFromCSVText(text){ const parsed = Papa.parse(text.trim()).data; return parsed.slice(1).map(arr=>({ c: arr.map(v=>({v})) })); }
+function afterRowsLoaded(rows){
+  rows.forEach(addMarker);
+  const hash=location.hash||''; const q=hash.startsWith('#q=')?decodeURIComponent(hash.slice(3)):'';
+  const last=localStorage.getItem('lastProject');
+  if(q){ document.getElementById('projectSelect').value=q; goToProject(q,15); }
+  else if(last){ document.getElementById('projectSelect').value=last; goToProject(last,15); }
+  loader.classList.add('hide');
+}
+window.GVizCB = function(gvizObj){ try{ afterRowsLoaded(rowsFromGVizObject(gvizObj)); }catch(e){ console.warn('GViz parse error', e); loadViaCSV(); } };
+function loadViaJSONP(){ const s=document.createElement('script'); s.src=jsonpURL; s.async=true; s.onerror=()=>loadViaCSV(); document.head.appendChild(s); }
+async function loadViaCSV(){
+  try{
+    const res = await fetch(csvURL, {cache:'no-store'}); if(!res.ok) throw new Error('CSV HTTP '+res.status);
+    const text = await res.text(); afterRowsLoaded(rowsFromCSVText(text));
+  }catch(e2){ console.warn('CSV error', e2); loader.textContent='Không tải được dữ liệu. Hãy Publish to web → CSV đúng sheet.'; setTimeout(()=> loader.classList.add('hide'), 4000); }
+}
+loadViaJSONP();
+</script>
+
+</body>
+</html>
